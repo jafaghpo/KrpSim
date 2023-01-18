@@ -1,20 +1,6 @@
-from dataclasses import dataclass, field
-import sys
+from dataclasses import dataclass
 import re
-
-# REGEX: dict[str, str] = {
-#     "stock": re.compile(r"^[a-zA-Z]+:[0-9]+$"),
-#     "process": re.compile(r"^[a-zA-Z]+:\([a-zA-Z]+:[0-9]+;?\)+:\([a-zA-Z]+:[0-9]+;?\)+:[0-9]+$"),
-#     "needs": re.compile(r"(.*?):(.*):+(.*)"),
-#     "optimize": re.compile(r"^optimize:\([a-zA-Z]+;?\)+$"),
-# }
-
-REGEX = {
-    "stock": re.compile(r"^[a-zA-Z]+:[0-9]+$"),
-    "process": re.compile(r"^[a-zA-Z]+:\([a-zA-Z]+:[0-9]+;?\)+:\([a-zA-Z]+:[0-9]+;?\)+:[0-9]+$"),
-    "needs": re.compile(r"(.*?):(.*):+(.*)"),
-    "optimize": re.compile(r"^optimize:\([a-zA-Z]+;?\)+$"),
-}
+import os
 
 @dataclass
 class Stock:
@@ -28,11 +14,16 @@ class Stock:
 
     def __str__(self) -> str:
         """
-        Return the string representation of the stock.
+        String representation of the stock.
+
+        Returns:
+            A string representing the stock.
         """
-        s = f"\033[1mStock\033[0m -> \033[38;5;155m{self.name}"
-        s += f"\033[0m : {self.quantity}"
+        s = f"\033[38;5;155m{self.name}\033[0m: {self.quantity}"
         return s
+    
+    def __repr__(self) -> str:
+        return self.__str__()
 
 @dataclass
 class Process:
@@ -49,117 +40,160 @@ class Process:
     time: int
 
     def __str__(self) -> str:
-        s = f"\033[38;5;74m{self.name}\033[0m - \033[1mneeds\033[0m : {self.need} -> "
-        s += f"\033[1mresult\033[0m : {self.output} - \033[1mdelay\033[0m : {self.time}"
+        s = f"\033[38;5;74m{self.name}\033[0m (time: {self.time})\n"
+        s += f"\t\033[1mInput\033[0m: {self.need}\n\t\033[1mOutput\033[0m: {self.output}"
         return s
 
-
-@dataclass
-class Parser:
+def get_lines(path: str) -> list[str]:
     """
-    Parser of the configuration file.
+    Reads the file at the specified path, removes leading and trailing whitespaces,
+    and returns the lines without comment lines.
+
+    Args:
+        path: A string representing the path of the file.
+    Returns:
+        A list of strings representing the lines of the file without leading
+        and trailing whitespaces and without comment lines.
+    Raises:
+        FileNotFoundError: if the file does not exist or is empty.
     """
-    path: str
-    stocks: dict[str, Stock] = field(default_factory=dict)
-    processes: dict[str, Process] = field(default_factory=dict)
-    optimize: list[str] = field(default_factory=list)
-    stock_turn: bool = True
-    process_turn: bool = False
-    optimize_turn: bool = False
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"File '{path}' does not exist")
+    cleaned_lines = []
+    with open(path) as file:
+        for line in file:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                cleaned_lines.append(line)
+    if not cleaned_lines:
+        raise FileNotFoundError(f"File '{path}' is empty")
+    return cleaned_lines
 
+def parse_stock(stock: str) -> Stock:
+    """
+    Parse a stock string and returns a Stock object containing
+    the name and the quantity of the stock.
 
-    def parse_stock(self, line: str) -> Stock:
-        """
-        Parse a stock line of the configuration file.
-        """
-        ocurrences = re.findall(REGEX["stock"], line)
-        if not ocurrences:
-            sys.exit(f"Error: invalid stock format: {line}")
-        name, quantity = ocurrences[0].split(":")
-        if not name.isalpha():
-            sys.exit(f"Error: invalid stock name: {name}")
-        if not quantity.isdigit():
-            sys.exit(f"Error: invalid stock quantity: {quantity}")
-        return Stock(name, int(quantity))
+    Args:
+        stock: A string representing the stock in the format of "name:quantity"
+    Returns:
+        A Stock object containing the name and the quantity of the stock.
+    Raises:
+        ValueError: if the stock string does not match the expected format.
+    """
+    stock_match = re.match(r"(\w+):(\d+)", stock)
+    if stock_match is None:
+        raise ValueError(f"Invalid format for stock: '{stock}'")
+    return Stock(stock_match.group(1), int(stock_match.group(2)))
 
-    def parse_process(self, line: str) -> Process:
-        """
-        Parse a process line of the configuration file.
-        """
-        ocurrences = re.findall(REGEX["process"], line)
-        if not ocurrences:
-            sys.exit(f"Error: invalid process format: {line}")
-        name, need, output, time = ocurrences[0].split(":")
-        if not name.isalpha():
-            sys.exit(f"Error: invalid process name: {name}")
-        if not time.isdigit():
-            sys.exit(f"Error: invalid process time: {time}")
-        need = self.parse_needs(need)
-        output = self.parse_needs(output)
-        return Process(name, need, output, int(time))
+def parse_process(process: str) -> Process:
+    """
+    Parse a process line and returns a Process object.
 
-    def parse_optimize(self, line: str) -> list[str]:
-        """
-        Parse the optimize line of the configuration file.
-        """
-        ocurrences = re.findall(REGEX["optimize"], line)
-        if not ocurrences:
-            sys.exit(f"Error: invalid optimize format: {line}")
-        return ocurrences[0].split(";")
+    Args:
+        process: A string representing the process line.
+    Returns:
+        A Process object containing the name, time, input & output stocks.
+    Raises:
+        ValueError: if the process line does not match the expected format.
+    """
+    match = re.match(r"^(\w+):\((.*)\):\((.*)\):(\d+)$", process)
+    if match is None:
+        raise ValueError(f"Invalid format for process: '{process}'")
+    name, needs, outputs, time = match.groups()
+    need = []
+    for stock in needs.split(";"):
+        need.append(parse_stock(stock))
+    output = []
+    for stock in outputs.split(";"):
+        output.append(parse_stock(stock))
+    return Process(name, need, output, int(time))
 
-    def parse_line(self, line: str) -> Process | Stock | list[str]:
-        """
-        Parse a line of the configuration file and return the corresponding object.
-        """
-        if REGEX["optimize"].match(line):
-            return self.parse_optimize(line)
-        elif REGEX["process"].match(line):
-            print("process")
-            return self.parse_process(line)
-        elif REGEX["stock"].match(line):
-            return self.parse_stock(line)
-        else:
-            sys.exit(f"Error: invalid line: {line}")
+def parse_optimize(stocks: dict[str, int], optimize: str) -> list[str]:
+    """
+    Parse the optimize line and returns the list of stocks to optimize.
 
-    def parse_config(self) -> tuple[dict[str, Stock], dict[str, Process], list[str]]:
-        """
-        Parse the configuration file and return the list of stocks & processes
-        as dictionary with their name as key and the stock name(s) to optimize.
-        - path: the path to the configuration file
+    Args:
+        optimize: A string representing the optimize line.
+    Returns:
+        A list of stocks to optimize.
+    Raises:
+        ValueError: if the optimize line does not match the expected format.
+    """
+    match = re.match(r"^optimize:\(([\w;]+)\)$", optimize)
+    if match is None:
+        raise ValueError(f"Invalid format for optimize: '{optimize}'")
+    optimize = [stock for stock in optimize.split(":")[1][1:-1].split(";")]
+    for stock in optimize:
+        if optimize != "time" and not stock in stocks:
+            raise ValueError(f"Stock '{stock}' to optimize is not defined")
+    return optimize
 
-        => Formatting of the configuration file:
-        - Stock format: "stock_name:quantity"
-        - Processes format: "process_name:needs:outputs:time"
-        - Needs/Outputs format: "(stock_name:quantity;stock_name:quantity;...)"
-        - Optimize format: "optimize:(stock_name;...)"
-        - Comments format: "# ..."
+def update_stocks_quantity(stocks: dict[str, int], process: Process):
+    """
+    Updates the list of stocks by adding the stocks needed and returned by the process.
+
+    Args:
+        stocks: A dictionary of stocks in the format of "name:quantity"
+        process: A Process object containing the name, time, input & output stocks.
+    Returns:
+        None
+    """
+    for stock in process.need:
+        if not stock.name in stocks:
+            stocks[stock.name] = 0
+    for stock in process.output:
+        if not stock.name in stocks:
+            stocks[stock.name] = 0
+
+def parse_lines(file: list[str]) -> tuple[dict[str, int], list[Process], str]:
+    """
+    Parses each line of the config file to extract the base stocks, processes and
+    the stocks to optimize.
+
+    Args:
+        file: list of strings representing the lines of the config file
+    Returns:
+        A tuple containing a dictionary of stocks, a list of processes 
+        and a list of stocks to optimize.
         
-        Comments and empty lines are ignored.
-        The configuration file will have the following order: stocks, processes, optimize.
-        """
-        with open(self.path) as f:
-            lines = f.readlines()
-            for line in lines:
-                line = line.strip()
-                if line == "" or line.startswith("#"):
-                    continue
-                output = self.parse_line(line)
-                if isinstance(output, Stock):
-                    if not self.stock_turn:
-                        sys.exit(f"Error: invalid line: {line}")
-                    print(f"{output}")
-                    self.stocks[output.name] = output
-                elif isinstance(output, Process):
-                    if not self.process_turn:
-                        if not self.stock_turn:
-                            sys.exit(f"Error: invalid line: {line}")
-                        self.stock_turn = False
-                        self.process_turn = True
-                    print(f"{output}")
-                    self.processes[output.name] = output
-                elif isinstance(output, list):
-                    print(f"\033[1mOptimize\033[0m -> {output}")
-                    self.optimize = output
-                    break
-            return self.stocks, self.processes, self.optimize
-
+        Each stock in the dictionary is represented by a key-value pair, where the key
+        is the name of the stock and the value is the quantity of the stock.
+        
+        Each process in the list of processes is represented by a Process object,
+        which contains the name, the list of needed stocks,
+        the list of output stocks, and the time needed to execute the process.
+        
+        Each stock to optimize is a string.
+    Raises:
+        ValueError: if the line does not match the expected format
+        (e.g. a process line is found when a stock line was expected)
+    """
+    stocks, processes, optimize = {}, [], []
+    status = "stock"
+    for line in file:
+        if 'optimize' in line:
+            if not processes:
+                raise ValueError(f"Cant optimize before having any process")
+            if status != "process":
+                raise ValueError(f"Expected {status} for line: '{line}'")
+            status = "optimize"
+            optimize = parse_optimize(stocks, line)
+        elif '(' in line:
+            if status == "optimize":
+                raise ValueError(f"Expected {status} for line: '{line}'")
+            status = "process"
+            process = parse_process(line)
+            processes.append(process)
+            update_stocks_quantity(stocks, process)
+        else:
+            if status != "stock":
+                raise ValueError(f"Expected {status} for line: '{line}'")
+            status = "stock"
+            stock = parse_stock(line)
+            stocks[stock.name] = stock.quantity
+    if not processes:
+        raise ValueError(f"Expected at least one process")
+    if status != "optimize":
+        raise ValueError(f"No stock to optimize")
+    return stocks, processes, optimize
