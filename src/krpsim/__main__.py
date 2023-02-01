@@ -3,6 +3,10 @@ import argparse
 
 from krpsim.parser import Process, get_lines, parse_lines
 
+# from krpsim.genetic_algo import genetic_algorithm, Schedule
+from krpsim.graph import Graph
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     """
     Parse the command line arguments and returns a Namespace object containing
@@ -24,9 +28,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "delay",
+        nargs="?",
         type=int,
         help="Time limit for the scheduling",
-        default=None,
+        default=int(1e6),
     )
     parser.add_argument(
         "-c",
@@ -43,29 +48,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     return parser.parse_args(argv)
 
-def display_config(stocks: dict[str, int], processes: list[Process], optimize: list[str]):
-    """
-    Display the data extracted from the config file.
 
-    Args:
-        stocks: A dictionary of stocks in the format of "name:quantity"
-        processes: A list of Process objects containing the name, time, input & output of the process.
-        optimize: A list of stocks to optimize.
-    Returns:
-        None
-    """
-    print(f"[Configuration file parsed]")
-    print(f"Stocks:")
-    for stock, qty in stocks.items():
-        print(f" - {stock: <10}: {qty}")
-    print(f"Processes:")
-    for process in processes:
-        print(f" - {process}")
-    print(f"Optimize:")
-    for stock in optimize:
-        print(f" - {stock}")
-
-def main():
+def main_graph():
     """
     Entry point of the program, parse the command line arguments,
     parse the configuration file, and display data if verbose flag is set.
@@ -82,8 +66,43 @@ def main():
         stocks, processes, optimize = parse_lines(lines)
     except (FileNotFoundError, ValueError) as error:
         sys.exit(f"Error: {error}")
+    graph = Graph(processes, stocks, optimize)
+    graph.build()
+    graph.sort()
     if args.verbose:
-        display_config(stocks, processes, optimize)
+        print(graph)
+    root = graph.get_root()
+    children = graph.get_children(root)
+    if args.verbose:
+        for node in children:
+            print(node)
+
+
+# def main_genetic():
+#     """
+#     Entry point of the program, parse the command line arguments,
+#     parse the configuration file, and display data if verbose flag is set.
+
+#     Returns:
+#         None
+#     Raises:
+#         FileNotFoundError: if the specified file does not exist.
+#         ValueError: if there is an error parsing the configuration file.
+#     """
+#     args = parse_args(sys.argv[1:])
+#     try:
+#         lines = get_lines(args.file)
+#         stocks, processes, optimize = parse_lines(lines)
+#     except (FileNotFoundError, ValueError) as error:
+#         sys.exit(f"Error: {error}")
+#     if args.verbose:
+#         display_config(stocks, processes, optimize)
+#     schedule = Schedule(stocks, processes, optimize)
+#     schedule = genetic_algorithm(schedule, args.delay)
+#     # Use the best path to display or save the results
+#     # if args.verbose:
+#     #     display_results(best_path)
 
 if __name__ == "__main__":
-    main()
+    main_graph()
+    # main_genetic()
