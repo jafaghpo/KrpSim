@@ -168,6 +168,7 @@ class Graph:
                     for p in self.outputs[need]
                 ]
             )
+        print(f"matrices: {matrices}")
         combinations = Node.combinations(matrices)
         return [Node(lst, deepcopy(stock), depth + 1) for lst in combinations]
 
@@ -183,7 +184,16 @@ class Graph:
             self.get_process_children(process, parent.depth, parent.stock)
             for process in parent.plist
         ]
+        depth = lambda L: isinstance(L, list) and max(map(depth, L))+1
+        print(f"depth: {depth(nodes_lists)}")
+        print(f"nodes_lists:")
+        for nodes in nodes_lists:
+            print(nodes)
         nodes_combinations = Node.combinations(nodes_lists)
+        # print(f"nodes_combinations (len = {len(nodes_combinations[0][0])}):")
+        # for nodes in nodes_combinations[0][0]:
+        #     for node in nodes:
+        #         print(node)
         children = [sum(nodes) for nodes in nodes_combinations]
         parent.children = children
         return children
